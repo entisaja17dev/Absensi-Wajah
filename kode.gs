@@ -35,7 +35,7 @@ function setupDatabase() {
 // 2. Main Entry Point
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('Sistem Absensi Wajah SMK Demo 1')
+    .setTitle('Sistem Absensi Wajah SMK Bina Informatika')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
