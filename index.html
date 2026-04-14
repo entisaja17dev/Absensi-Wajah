@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMK Demo 1 - Face Attendance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Plus+Jakarta+Sans', sans-serif;
+            background-color: #f8fafc;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        /* Full page overlay for Blogger */
+        #app-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            background: #f8fafc;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 260px;
+            background: white;
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100%;
+            z-index: 1000;
+        }
+
+        .sidebar.hidden {
+            transform: translateX(-100%);
+        }
+
+        .menu-item {
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+            gap: 12px;
+            font-weight: 500;
+        }
+
+        .menu-item:hover, .menu-item.active {
+            color: #0f172a;
+            background: #f1f5f9;
+        }
+
+        .menu-item.active {
+            color: #2563eb;
+            border-right: 3px solid #2563eb;
+        }
+
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 40px;
+            margin-left: 260px;
+            transition: margin-left 0.3s ease;
+        }
+
+        .hamburger {
+            display: none;
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1001;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .hamburger i {
+            font-size: 20px;
+            color: #64748b;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            .content-area {
+                margin-left: 0;
+            }
+            .hamburger {
+                display: block;
+            }
+        }
+
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #video {
+            width: 100%;
+            transform: scaleX(-1);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 11000;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="loading" class="loading-overlay">
+    <div class="flex flex-col items-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p class="mt-4 font-medium text-slate-600">Memuat Sistem...</p>
+    </div>
+</div>
+
+<!-- Modal Tambah Data -->
+<div id="modal-tambah" class="modal-overlay hidden">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+        <h3 id="modal-tambah-title" class="text-xl font-bold text-slate-800 mb-4">Tambah Data</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">ID (Nomor Induk)</label>
+                <input type="text" id="input-id" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: 10000123">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap</label>
+                <input type="text" id="input-nama" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Masukkan nama">
+            </div>
+            
+            <div id="extra-guru-add" class="hidden">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Jabatan</label>
+                <input type="text" id="input-jabatan" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: Guru Produktif">
+            </div>
+
+            <div id="extra-siswa-add" class="hidden space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
+                    <input type="text" id="input-kelas" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: XII RPL 1">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Jurusan</label>
+                    <input type="text" id="input-jurusan" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Contoh: Rekayasa Perangkat Lunak">
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModalTambah()" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition">Batal</button>
+                <button onclick="simpanDataBaru()" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Edit Data -->
+<div id="modal-edit" class="modal-overlay hidden">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+        <h3 class="text-xl font-bold text-slate-800 mb-4">Edit Data</h3>
+        <div class="space-y-4">
+            <input type="hidden" id="edit-old-id">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">ID (Nomor Induk)</label>
+                <input type="text" id="edit-id" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap</label>
+                <input type="text" id="edit-nama" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div id="extra-guru-edit" class="hidden">
+                <label class="block text-sm font-medium text-slate-700 mb-1">Jabatan</label>
+                <input type="text" id="edit-jabatan" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div id="extra-siswa-edit" class="hidden space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
+                    <input type="text" id="edit-kelas" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Jurusan</label>
+                    <input type="text" id="edit-jurusan" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button onclick="closeModalEdit()" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition">Batal</button>
+                <button onclick="simpanPerubahanData()" class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition">Simpan Perubahan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Konfirmasi Hapus -->
+<div id="modal-konfirmasi-hapus" class="modal-overlay hidden">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm mx-4 text-center">
+        <div class="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fa-solid fa-trash-can text-2xl"></i>
+        </div>
+        <h3 class="text-xl font-bold text-slate-800 mb-2">Hapus Data?</h3>
+        <p class="text-slate-500 text-sm mb-6">Apakah Anda yakin ingin menghapus <span id="hapus-nama-display" class="font-bold text-slate-800"></span>? Tindakan ini permanen.</p>
+        <div class="flex gap-3">
+            <button onclick="closeModalHapus()" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition">Batal</button>
+            <button onclick="eksekusiHapus()" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition">Ya, Hapus</button>
+        </div>
+    </div>
+</div>
+
+<div id="app-container" class="hidden">
+    <!-- Login Screen -->
+    <div id="login-screen" class="w-full flex items-center justify-center bg-slate-100 p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+            <h1 class="text-2xl font-bold text-slate-800 mb-2">SMK Demo 1</h1>
+            <p class="text-slate-500 mb-6">Silakan login untuk mengakses sistem absensi.</p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" id="login-user" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="login-pass" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Masuk</button>
+                <div id="login-error" class="text-red-500 text-sm text-center hidden">Username atau password salah!</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main UI -->
+    <div id="main-ui" class="hidden flex w-full">
+        <!-- Hamburger Button -->
+        <button class="hamburger" onclick="toggleSidebar()">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="p-6 border-b">
+                <h2 class="text-xl font-bold text-slate-800">SMK Demo 1</h2>
+            </div>
+            <div class="py-4 flex-1">
+                <div class="menu-item" onclick="switchTab('dashboard')">
+                    <i class="fa-solid fa-house"></i> Dashboard
+                </div>
+                <div class="menu-item" onclick="switchTab('guru')">
+                    <i class="fa-solid fa-user-tie"></i> Data Guru/Staf
+                </div>
+                <div class="menu-item" onclick="switchTab('siswa')">
+                    <i class="fa-solid fa-users"></i> Data Siswa
+                </div>
+                <div class="menu-item" onclick="switchTab('training')">
+                    <i class="fa-solid fa-id-card"></i> Training Wajah
+                </div>
+                <div class="menu-item" onclick="switchTab('log')">
+                    <i class="fa-solid fa-file-lines"></i> Log Absensi
+                </div>
+                <div class="menu-item" onclick="switchTab('rekap')">
+                    <i class="fa-solid fa-chart-line text-green-500"></i> Rekap Laporan
+                </div>
+                <div class="mt-4 px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Absensi</div>
+                <div class="menu-item" onclick="startAttendance('Masuk')">
+                    <i class="fa-solid fa-right-to-bracket text-blue-500"></i> Rekam Absen Masuk
+                </div>
+                <div class="menu-item" onclick="startAttendance('Pulang')">
+                    <i class="fa-solid fa-right-from-bracket text-red-500"></i> Rekam Absen Pulang
+                </div>
+            </div>
+            <div class="p-4 border-t">
+                <div class="flex items-center justify-between mb-2">
+                    <span id="display-name" class="text-sm font-semibold truncate">Admin</span>
+                    <button onclick="logout()" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-power-off"></i></button>
+                </div>
+                <div id="display-role" class="text-xs text-slate-400">Administrator</div>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="content-area">
+            
+            <!-- Dashboard Tab -->
+            <div id="tab-dashboard" class="tab-content">
+                <h1 class="text-3xl font-bold text-slate-800 mb-6">Ringkasan Hari Ini</h1>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="bg-white p-6 rounded-xl border shadow-sm text-center">
+                        <p class="text-sm text-slate-500 font-medium">Hadir (Masuk)</p>
+                        <h3 class="text-3xl font-bold text-blue-600 mt-1" id="dash-hadir">0</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl border shadow-sm text-center">
+                        <p class="text-sm text-slate-500 font-medium">Sudah Pulang</p>
+                        <h3 class="text-3xl font-bold text-green-600 mt-1" id="dash-pulang">0</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl border shadow-sm text-center">
+                        <p class="text-sm text-slate-500 font-medium">Belum Absen</p>
+                        <h3 class="text-3xl font-bold text-orange-600 mt-1" id="dash-belum">0</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl border shadow-sm text-center">
+                        <p class="text-sm text-slate-500 font-medium">Total Personil</p>
+                        <h3 class="text-3xl font-bold text-slate-800 mt-1" id="dash-total">0</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rekap Tab -->
+            <div id="tab-rekap" class="tab-content hidden">
+                <h1 class="text-3xl font-bold text-slate-800 mb-6">Rekapitulasi Laporan</h1>
+                <div class="bg-white p-6 rounded-xl border shadow-sm mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Jenis Laporan</label>
+                            <select id="rekap-type" onchange="toggleRekapFilter()" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                <option value="harian">Harian</option>
+                                <option value="bulanan">Bulanan</option>
+                            </select>
+                        </div>
+                        <div id="rekap-date-container">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Pilih Tanggal</label>
+                            <input type="date" id="rekap-date" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div id="rekap-month-container" class="hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Pilih Bulan</label>
+                            <input type="month" id="rekap-month" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <button onclick="generateRekap()" class="bg-blue-600 text-white py-2 px-6 rounded-lg font-semibold hover:bg-blue-700 transition">Tampilkan</button>
+                    </div>
+                </div>
+
+                <div id="rekap-summary-cards" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 hidden">
+                    <div class="bg-white p-4 rounded-xl border text-center">
+                        <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Personil</p>
+                        <h4 id="rep-total" class="text-2xl font-bold text-slate-800">0</h4>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border text-center">
+                        <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Hadir</p>
+                        <h4 id="rep-hadir" class="text-2xl font-bold text-green-600">0</h4>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border text-center">
+                        <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Persentase</p>
+                        <h4 id="rep-persen" class="text-2xl font-bold text-blue-600">0%</h4>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead id="rekap-thead" class="bg-slate-50 border-b text-slate-600 font-bold text-sm"></thead>
+                            <tbody id="rekap-tbody" class="divide-y text-slate-600 text-sm">
+                                <tr>
+                                    <td colspan="6" class="px-6 py-8 text-center text-slate-400 italic">Silakan pilih filter dan klik Tampilkan.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attendance Scanner -->
+            <div id="tab-attendance" class="tab-content hidden">
+                <h1 id="attendance-title" class="text-3xl font-bold text-slate-800 mb-6">Rekam Absensi</h1>
+                <div class="flex flex-col lg:flex-row gap-8">
+                    <div class="flex-1">
+                        <div id="video-container">
+                            <video id="video" autoplay muted playsinline></video>
+                            <button onclick="toggleFullscreen()" class="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 text-xs rounded-md z-20">Fullscreen</button>
+                        </div>
+                        <button onclick="stopAttendance()" class="w-full mt-4 bg-slate-900 text-white py-3 rounded-lg font-bold">Tutup Kamera</button>
+                    </div>
+                    <div class="w-full lg:w-80">
+                        <div class="bg-white rounded-xl border overflow-hidden shadow-sm">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-slate-50 border-b">
+                                    <tr>
+                                        <th class="px-4 py-3 font-semibold text-slate-700">Nama</th>
+                                        <th class="px-4 py-3 font-semibold text-slate-700">ID</th>
+                                        <th class="px-4 py-3 font-semibold text-slate-700">Waktu</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendance-list" class="divide-y">
+                                    <tr>
+                                        <td class="px-4 py-3 text-slate-400 italic text-center" colspan="3">Menunggu deteksi...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Tab -->
+            <div id="tab-training" class="tab-content hidden">
+                <h1 class="text-3xl font-bold text-slate-800 mb-6">Daftarkan Wajah</h1>
+                <div class="bg-white p-6 rounded-xl border max-w-2xl">
+                    <p class="mb-4 text-slate-600 italic text-sm">*Pilih user untuk merekam biometric wajah mereka.</p>
+                    <div class="space-y-4">
+                        <select id="training-user-select" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="">-- Pilih Nama Guru/Siswa --</option>
+                        </select>
+                        <div id="training-camera-area" class="hidden text-center">
+                            <div class="relative w-full max-w-sm mx-auto rounded-lg overflow-hidden bg-black aspect-video">
+                                <video id="training-video" class="w-full transform scaleX(-1)" autoplay muted></video>
+                            </div>
+                            <button onclick="captureFace()" class="w-full mt-4 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Ambil Sampel & Simpan</button>
+                        </div>
+                        <button id="btn-start-training" onclick="prepareTraining()" class="w-full bg-slate-800 text-white py-2 rounded-lg font-semibold transition">Aktifkan Kamera Training</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Tabs (Siswa/Guru/Log) -->
+            <div id="tab-generic" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <h1 id="generic-title" class="text-3xl font-bold text-slate-800">Data</h1>
+                    <div class="flex gap-2">
+                        <button id="btn-tambah" onclick="openModalTambah()" class="hidden bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition flex items-center gap-2">
+                            <i class="fa-solid fa-plus text-xs"></i> Tambah Data
+                        </button>
+                        <button onclick="refreshData()" class="bg-slate-100 p-2 rounded-lg hover:bg-slate-200 border border-slate-200 transition">
+                            <i id="refresh-icon" class="fa-solid fa-arrows-rotate"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl border shadow-sm overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead id="generic-thead" class="bg-slate-50 border-b text-slate-600 font-bold text-sm"></thead>
+                            <tbody id="generic-tbody" class="divide-y text-slate-600 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- KONFIGURASI APLIKASI ---
+    const IS_PREVIEW = true; 
+    const GAS_URL = "URL_DEPLOY_GAS_ANDA_DISINI";
+    
+    let currentUser = null;
+    let masterData = [];
+    let logsData = [];
+    let faceMatcher = null;
+    let cameraActive = false;
+    let detectionInterval = null;
+    let currentTab = 'dashboard';
+    let modelsLoaded = false;
+    let idUserHapus = null;
+
+    window.onload = async () => {
+        document.getElementById('loading').classList.remove('hidden');
+        try {
+            await loadModels();
+            if (IS_PREVIEW) {
+                setupDummyData();
+                setTimeout(() => {
+                    document.getElementById('loading').classList.add('hidden');
+                    document.getElementById('app-container').classList.remove('hidden');
+                    updateDashboardStats();
+                }, 1000);
+            }
+        } catch (e) {
+            alert("Gagal memuat sistem AI: " + e.message);
+        }
+    };
+
+    async function loadModels() {
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights/';
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        modelsLoaded = true;
+    }
+
+    function setupDummyData() {
+        masterData = [
+            { id: "10000161", nama: "Sakina", tipe: "siswa", kelas: "XII RPL 1", jurusan: "RPL", descriptor: null },
+            { id: "10000159", nama: "Eka", tipe: "siswa", kelas: "XII RPL 2", jurusan: "RPL", descriptor: null },
+            { id: "900001", nama: "Bapak Budi", tipe: "guru", jabatan: "Wakasek Kesiswaan", descriptor: null }
+        ];
+        const today = new Date().toISOString().split('T')[0];
+        logsData = [
+            { time: today + " 07:30:00", id: "10000161", nama: "Sakina", status: "Masuk" },
+            { time: today + " 07:45:00", id: "10000159", nama: "Eka", status: "Masuk" }
+        ];
+        updateTrainingSelect();
+    }
+
+    // --- DASHBOARD ---
+    function updateDashboardStats() {
+        const today = new Date().toISOString().split('T')[0];
+        const todayIn = logsData.filter(l => l.time.startsWith(today) && l.status === 'Masuk');
+        const todayOut = logsData.filter(l => l.time.startsWith(today) && l.status === 'Pulang');
+        
+        const dashHadir = document.getElementById('dash-hadir');
+        const dashPulang = document.getElementById('dash-pulang');
+        const dashTotal = document.getElementById('dash-total');
+        const dashBelum = document.getElementById('dash-belum');
+
+        if(dashHadir) dashHadir.innerText = todayIn.length;
+        if(dashPulang) dashPulang.innerText = todayOut.length;
+        if(dashTotal) dashTotal.innerText = masterData.length;
+        if(dashBelum) dashBelum.innerText = masterData.length - todayIn.length;
+    }
+
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.classList.toggle('open');
+    }
+
+    // --- REKAP LAPORAN ---
+    function toggleRekapFilter() {
+        const type = document.getElementById('rekap-type').value;
+        document.getElementById('rekap-date-container').classList.toggle('hidden', type !== 'harian');
+        document.getElementById('rekap-month-container').classList.toggle('hidden', type !== 'bulanan');
+    }
+
+    function generateRekap() {
+        const type = document.getElementById('rekap-type').value;
+        const tbody = document.getElementById('rekap-tbody');
+        const thead = document.getElementById('rekap-thead');
+        const cards = document.getElementById('rekap-summary-cards');
+        
+        tbody.innerHTML = "";
+        cards.classList.remove('hidden');
+        let presentCount = 0;
+
+        if (type === 'harian') {
+            const date = document.getElementById('rekap-date').value;
+            if (!date) return alert("Pilih tanggal!");
+            
+            thead.innerHTML = `<tr><th class="p-4">ID</th><th class="p-4">Nama</th><th class="p-4 text-center">Masuk</th><th class="p-4 text-center">Pulang</th><th class="p-4 text-center">Status</th></tr>`;
+            
+            masterData.forEach(user => {
+                const logIn = logsData.find(l => l.id === user.id && l.time.startsWith(date) && l.status === 'Masuk');
+                const logOut = logsData.find(l => l.id === user.id && l.time.startsWith(date) && l.status === 'Pulang');
+                const isPresent = !!logIn;
+                if (isPresent) presentCount++;
+
+                tbody.innerHTML += `<tr>
+                    <td class="p-4 font-mono font-bold">${user.id}</td>
+                    <td class="p-4">${user.nama}</td>
+                    <td class="p-4 text-center text-blue-600 font-medium">${logIn ? logIn.time.split(' ')[1] : '-'}</td>
+                    <td class="p-4 text-center text-red-600 font-medium">${logOut ? logOut.time.split(' ')[1] : '-'}</td>
+                    <td class="p-4 text-center font-bold ${isPresent ? 'text-green-600' : 'text-slate-400'}">${isPresent ? 'HADIR' : 'ALPHA'}</td>
+                </tr>`;
+            });
+        } else {
+            const month = document.getElementById('rekap-month').value;
+            if (!month) return alert("Pilih bulan!");
+            thead.innerHTML = `<tr><th class="p-4">ID</th><th class="p-4">Nama</th><th class="p-4 text-center">Total Hadir</th><th class="p-4 text-center">Persentase</th></tr>`;
+            masterData.forEach(user => {
+                const userLogs = logsData.filter(l => l.id === user.id && l.time.startsWith(month) && l.status === 'Masuk');
+                const uniqueDays = [...new Set(userLogs.map(l => l.time.split(' ')[0]))].length;
+                const perc = Math.round((uniqueDays / 22) * 100);
+                if (uniqueDays > 0) presentCount++;
+                tbody.innerHTML += `<tr>
+                    <td class="p-4 font-mono">${user.id}</td>
+                    <td class="p-4">${user.nama}</td>
+                    <td class="p-4 text-center font-bold">${uniqueDays} Hari</td>
+                    <td class="p-4 text-center">${perc}%</td>
+                </tr>`;
+            });
+        }
+        document.getElementById('rep-total').innerText = masterData.length;
+        document.getElementById('rep-hadir').innerText = presentCount;
+        document.getElementById('rep-persen').innerText = Math.round((presentCount / masterData.length) * 100) + "%";
+    }
+
+    // --- UTILS KAMERA ---
+    async function getAvailableCamera() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            if (videoDevices.length === 0) return null;
+            
+            // Prioritaskan kamera depan (user) jika tersedia
+            const frontCam = videoDevices.find(device => device.label.toLowerCase().includes('front') || device.label.toLowerCase().includes('user'));
+            return frontCam ? frontCam.deviceId : videoDevices[0].deviceId;
+        } catch (e) {
+            console.error("Gagal melacak perangkat:", e);
+            return null;
+        }
+    }
+
+    async function initCamera(videoElement) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("Browser Anda tidak mendukung akses kamera atau koneksi tidak aman (HTTPS).");
+            return false;
+        }
+
+        const devId = await getAvailableCamera();
+        
+        // Coba beberapa konfigurasi constraints
+        const constraintOptions = [
+            { video: { deviceId: devId ? { exact: devId } : undefined } },
+            { video: { facingMode: "user" } },
+            { video: true }
+        ];
+
+        for (const constraints of constraintOptions) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                await new Promise((resolve) => {
+                    videoElement.onloadedmetadata = () => {
+                        videoElement.play();
+                        resolve();
+                    };
+                });
+                return true;
+            } catch (err) {
+                console.warn(`Gagal dengan constraints:`, constraints, err);
+                continue;
+            }
+        }
+
+        alert("Tidak dapat menemukan atau mengakses kamera. Pastikan izin kamera sudah diberikan.");
+        return false;
+    }
+
+    // --- ATTENDANCE SYSTEM ---
+    async function startAttendance(type) {
+        const date = new Date().toLocaleDateString('id-ID');
+        const titleEl = document.getElementById('attendance-title');
+        titleEl.innerText = `Rekam Absen ${type}, ${date}`;
+        titleEl.className = `text-3xl font-bold mb-6 ${type === 'Pulang' ? 'text-red-600' : 'text-blue-600'}`;
+        
+        document.getElementById('attendance-list').innerHTML = `<tr><td colspan="3" class="p-4 text-center italic text-slate-400">Menunggu deteksi...</td></tr>`;
+        switchTab('attendance');
+        
+        const video = document.getElementById('video');
+        const success = await initCamera(video);
+        if (success) {
+            cameraActive = true;
+            startFaceDetection(video, type);
+        }
+    }
+
+    function stopAttendance() {
+        cameraActive = false;
+        if (detectionInterval) clearInterval(detectionInterval);
+        const video = document.getElementById('video');
+        if (video && video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+        }
+        const canvas = document.querySelector('#video-container canvas');
+        if (canvas) canvas.remove();
+    }
+
+    async function startFaceDetection(video, type) {
+        const container = document.getElementById('video-container');
+        const canvas = faceapi.createCanvasFromMedia(video);
+        container.append(canvas);
+        const displaySize = { width: video.clientWidth, height: video.clientHeight };
+        faceapi.matchDimensions(canvas, displaySize);
+
+        detectionInterval = setInterval(async () => {
+            if (!cameraActive) return;
+            try {
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                const ctx = canvas.getContext('2d');
+                if(ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    faceapi.draw.drawDetections(canvas, resizedDetections);
+
+                    if (faceMatcher && resizedDetections.length > 0) {
+                        resizedDetections.forEach(det => {
+                            const match = faceMatcher.findBestMatch(det.descriptor);
+                            if (match.label !== 'unknown' && match.distance < 0.45) {
+                                recordAttendance(match.label, type);
+                                new faceapi.draw.DrawBox(det.detection.box, { label: match.label }).draw(canvas);
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error("Detection Error:", e);
+            }
+        }, 100);
+    }
+
+    function recordAttendance(id, type) {
+        const user = masterData.find(u => u.id === id);
+        if (!user) return;
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0') + ":" + now.getSeconds().toString().padStart(2, '0');
+        
+        const hasLogged = logsData.find(l => l.id === id && l.time.startsWith(dateStr) && l.status === type);
+        if (!hasLogged) {
+            logsData.push({ time: `${dateStr} ${timeStr}`, id, nama: user.nama, status: type });
+            const list = document.getElementById('attendance-list');
+            if(list && list.innerText.includes("Menunggu")) list.innerHTML = "";
+            if(list) {
+                list.insertAdjacentHTML('afterbegin', `<tr class="bg-blue-50">
+                    <td class="p-3 font-medium text-slate-800">${user.nama}</td>
+                    <td class="p-3 font-mono text-xs text-slate-500">${id}</td>
+                    <td class="p-3 font-bold text-blue-600">${timeStr}</td>
+                </tr>`);
+            }
+            playBeep();
+            updateDashboardStats();
+        }
+    }
+
+    // --- AUTH, NAV & DATA OPS ---
+    function handleLogin() {
+        const u = document.getElementById('login-user').value;
+        const p = document.getElementById('login-pass').value;
+        if (IS_PREVIEW && u === 'admin' && p === 'edudigital') {
+            currentUser = { nama: "Admin", role: "Admin" };
+            document.getElementById('display-name').innerText = "Administrator";
+            document.getElementById('display-role').innerText = "Administrator Utama";
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-ui').classList.remove('hidden');
+            switchTab('dashboard');
+            updateFaceMatcher();
+        } else {
+            const err = document.getElementById('login-error');
+            if(err) err.classList.remove('hidden');
+        }
+    }
+
+    function logout() { stopAttendance(); location.reload(); }
+
+    function switchTab(tabId) {
+        currentTab = tabId;
+        stopAttendance();
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+        
+        const btnTambah = document.getElementById('btn-tambah');
+        if(btnTambah) btnTambah.classList.toggle('hidden', !['guru', 'siswa'].includes(tabId));
+
+        const activeTabEl = document.getElementById(`tab-${tabId === 'guru' || tabId === 'siswa' || tabId === 'log' ? 'generic' : tabId}`);
+        if(activeTabEl) activeTabEl.classList.remove('hidden');
+        
+        if(tabId === 'dashboard') updateDashboardStats();
+        if(tabId === 'guru' || tabId === 'siswa' || tabId === 'log') renderGenericTable(tabId);
+        
+        document.querySelectorAll('.menu-item').forEach(item => {
+            const text = item.innerText.toLowerCase();
+            if(text.includes(tabId === 'rekap' ? 'rekap' : (tabId === 'guru' ? 'guru' : (tabId === 'siswa' ? 'siswa' : tabId)))) item.classList.add('active');
+        });
+    }
+
+    function refreshData() { renderGenericTable(currentTab); }
+
+    function renderGenericTable(type) {
+        const thead = document.getElementById('generic-thead');
+        const tbody = document.getElementById('generic-tbody');
+        if(!tbody || !thead) return;
+        
+        tbody.innerHTML = '';
+        if (type === 'guru' || type === 'siswa') {
+            document.getElementById('generic-title').innerText = `Data ${type === 'guru' ? 'Guru' : 'Siswa'}`;
+            let h = `<tr><th class="p-4">ID</th><th class="p-4">Nama</th>`;
+            h += type === 'guru' ? `<th class="p-4">Jabatan</th>` : `<th class="p-4">Kelas</th><th class="p-4">Jurusan</th>`;
+            h += `<th class="p-4 text-center">Aksi</th></tr>`;
+            thead.innerHTML = h;
+            masterData.filter(u => u.tipe === type).forEach(item => {
+                let r = `<tr><td class="p-4 font-mono font-bold">${item.id}</td><td class="p-4">${item.nama}</td>`;
+                r += type === 'guru' ? `<td class="p-4">${item.jabatan || "-"}</td>` : `<td class="p-4">${item.kelas || "-"}</td><td class="p-4 text-xs">${item.jurusan || "-"}</td>`;
+                r += `<td class="p-4 text-center flex justify-center gap-3">
+                        <button onclick="openModalEdit('${item.id}')" class="text-blue-600 transition hover:underline">Edit</button>
+                        <button onclick="hapusData('${item.id}')" class="text-red-600 transition hover:underline">Hapus</button>
+                    </td></tr>`;
+                tbody.innerHTML += r;
+            });
+        } else if (type === 'log') {
+            document.getElementById('generic-title').innerText = 'Log Absensi';
+            thead.innerHTML = `<tr><th class="p-4">Waktu</th><th class="p-4">Nama</th><th class="p-4 text-center">Status</th></tr>`;
+            logsData.slice().reverse().forEach(l => tbody.innerHTML += `<tr><td class="p-4 font-mono text-xs">${l.time}</td><td class="p-4">${l.nama}</td><td class="p-4 text-center font-bold text-blue-600 text-xs">${l.status}</td></tr>`);
+        }
+    }
+
+    // --- MODAL & HELPERS ---
+    function openModalTambah() {
+        document.getElementById('extra-guru-add').classList.toggle('hidden', currentTab !== 'guru');
+        document.getElementById('extra-siswa-add').classList.toggle('hidden', currentTab !== 'siswa');
+        document.getElementById('modal-tambah').classList.remove('hidden');
+    }
+    function closeModalTambah() { document.getElementById('modal-tambah').classList.add('hidden'); }
+    function simpanDataBaru() {
+        const id = document.getElementById('input-id').value;
+        const nama = document.getElementById('input-nama').value;
+        if(!id || !nama) return alert("Lengkapi data!");
+        let obj = { id, nama, tipe: currentTab, descriptor: null };
+        if(currentTab === 'guru') obj.jabatan = document.getElementById('input-jabatan').value;
+        else { obj.kelas = document.getElementById('input-kelas').value; obj.jurusan = document.getElementById('input-jurusan').value; }
+        masterData.push(obj);
+        updateTrainingSelect(); renderGenericTable(currentTab); closeModalTambah(); updateDashboardStats();
+    }
+    function openModalEdit(id) {
+        const u = masterData.find(u => u.id === id);
+        document.getElementById('edit-old-id').value = u.id;
+        document.getElementById('edit-id').value = u.id;
+        document.getElementById('edit-nama').value = u.nama;
+        document.getElementById('extra-guru-edit').classList.toggle('hidden', u.tipe !== 'guru');
+        document.getElementById('extra-siswa-edit').classList.toggle('hidden', u.tipe !== 'siswa');
+        if(u.tipe === 'guru') document.getElementById('edit-jabatan').value = u.jabatan || "";
+        else { document.getElementById('edit-kelas').value = u.kelas || ""; document.getElementById('edit-jurusan').value = u.jurusan || ""; }
+        document.getElementById('modal-edit').classList.remove('hidden');
+    }
+    function closeModalEdit() { document.getElementById('modal-edit').classList.add('hidden'); }
+    function simpanPerubahanData() {
+        const u = masterData.find(u => u.id === document.getElementById('edit-old-id').value);
+        u.id = document.getElementById('edit-id').value;
+        u.nama = document.getElementById('edit-nama').value;
+        if(u.tipe === 'guru') u.jabatan = document.getElementById('edit-jabatan').value;
+        else { u.kelas = document.getElementById('edit-kelas').value; u.jurusan = document.getElementById('edit-jurusan').value; }
+        renderGenericTable(currentTab); closeModalEdit(); updateTrainingSelect();
+    }
+    function hapusData(id) { idUserHapus = id; document.getElementById('hapus-nama-display').innerText = id; document.getElementById('modal-konfirmasi-hapus').classList.remove('hidden'); }
+    function closeModalHapus() { document.getElementById('modal-konfirmasi-hapus').classList.add('hidden'); }
+    function eksekusiHapus() { masterData = masterData.filter(u => u.id !== idUserHapus); renderGenericTable(currentTab); closeModalHapus(); updateTrainingSelect(); updateDashboardStats(); }
+    function updateTrainingSelect() {
+        const s = document.getElementById('training-user-select');
+        if(!s) return;
+        s.innerHTML = '<option value="">-- Pilih Nama --</option>';
+        masterData.forEach(u => s.innerHTML += `<option value="${u.id}">${u.nama} (${u.id})</option>`);
+    }
+    function playBeep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(); o.connect(a.destination); o.start(); o.stop(a.currentTime + 0.1); } catch(e){} }
+    function toggleFullscreen() { if (!document.fullscreenElement) document.getElementById('video-container').requestFullscreen().catch(()=>{}); else document.exitFullscreen(); }
+    
+    async function prepareTraining() {
+        const v = document.getElementById('training-video');
+        const success = await initCamera(v);
+        if (success) {
+            document.getElementById('training-camera-area').classList.remove('hidden'); 
+            document.getElementById('btn-start-training').classList.add('hidden'); 
+        }
+    }
+
+    async function captureFace() {
+        const id = document.getElementById('training-user-select').value;
+        if (!id) return alert("Pilih user terlebih dahulu!");
+        const v = document.getElementById('training-video');
+        try {
+            const det = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+            if (det) {
+                masterData.find(u => u.id === id).descriptor = JSON.stringify(Array.from(det.descriptor));
+                updateFaceMatcher();
+                alert("Data wajah berhasil didaftarkan!");
+            } else {
+                alert("Gagal mendeteksi wajah. Pastikan wajah terlihat jelas di kamera.");
+            }
+        } catch (e) {
+            console.error("Capture Error:", e);
+            alert("Error saat memproses wajah.");
+        }
+    }
+
+    function updateFaceMatcher() {
+        const labeled = masterData.filter(u => u.descriptor).map(u => new faceapi.LabeledFaceDescriptors(u.id, [new Float32Array(JSON.parse(u.descriptor))]));
+        if (labeled.length > 0) faceMatcher = new faceapi.FaceMatcher(labeled, 0.6);
+        else faceMatcher = null;
+    }
+</script>
+</body>
+</html>
